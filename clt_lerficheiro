@@ -1,0 +1,85 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <string.h>
+#include <time.h>
+
+FILE *fp;
+char flag_fim=0;
+
+typedef struct {
+  short int tipo;//iniciar a 1
+  short int dia;
+  short int mes;
+	short int hora;
+  short int min;
+}registo1_t;
+
+typedef struct {
+  short int tipo;//iniciar a 2
+  short int hora;
+  short int min;
+  short int humidade;
+  short int temperatura;
+}registo2_t;
+
+typedef struct {
+  short int tipo;//iniciar a 2
+	short int hora;
+  short int min;
+  short int poten;
+  short int painel;
+}registo3_t;
+
+typedef struct {
+  short int tipo;//iniciar a 4
+  short int hora;
+  short int min;
+  short int tensaoAC;
+  short int tensaoDC;
+}registo4_t;
+
+void ler() {
+	printf("\nDados:\n");
+	fp=fopen("file.dat","r");
+	registo1_t r1;
+	registo2_t r2;
+	registo3_t r3;
+	registo4_t r4;
+	while((fread(&r1,sizeof(registo1_t),1,fp))!=0)
+	{
+		switch(r1.tipo) {
+			case 1: ; //deixa estar os ponto e virgula (;) a seguir aos case (tens de ter em caso de declaraçao de variavel a seguir ao case)
+					    printf("Data:%d/%d %d:%d\n", r1.dia, r1.mes, r1.hora, r1.min);
+					    break;
+			case 2: ;
+					    memcpy(&r2,&r1,sizeof(registo1_t));
+					    printf("Humidade:%d\nTemperatura:%d\n", r2.humidade, r2.temperatura);
+					    break;
+			case 3: ;
+					    memcpy(&r3,&r1,sizeof(registo1_t));
+					    printf("Poten:%d\nPainel:%d\n\n", r3.poten, r3.painel);
+					    break;
+			case 4: ;
+              memcpy(&r4,&r1,sizeof(registo1_t));
+              printf("TensaoAC:%d\nTensaoDC:%d\n\n", r4.tensaoAC, r4.tensaoDC);
+              break;
+		}
+	}
+	flag_fim=1;
+	fclose(fp);
+}
+
+int main(void)
+{
+	printf("SMIR PI - Servidor de Monitorização e Intervenção Remoto\n");
+	while(1)
+	{
+		if(flag_fim==0)
+			ler();
+		else
+			return 0;
+	}
+	return 0;
+}
