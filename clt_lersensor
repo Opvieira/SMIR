@@ -1,0 +1,238 @@
+#include <mcp3004.h>
+#include <wiringPi.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <string.h>
+#include <time.h>
+
+#define MAX_TIME 85
+#define DHT11PIN 7
+#define SPI_CHAN 0  //SPI channel (0 or 1)
+
+FILE *fp;
+
+int dht11_val[5]={0,0,0,0,0};
+float canal11, canal21, canal31, canal41;
+int canal1,canal2,canal3,canal4, canal1_total,canal2_total,canal3_total,canal4_total;
+char flag_erro=0;
+short int dia_ant=0, mes_ant=0,hora_ant=0, min_ant=0, humid_ant=0, temp_ant=0, painel_ant=0, poten_ant=0, /*tensaoDC_ant=0,*/ tensaoAC_ant=0;
+float tensaoDC_ant;
+
+short int chan[7], pin_base=90;			//Novo pin base para o chip. Os inputs vão de 90 a 97
+
+typedef struct {
+	short int tipo;//iniciar a 1
+	short int dia;
+	short int mes;
+	short int hora;
+	short int min;
+}registo1_t;
+
+typedef struct {
+	short int tipo;//iniciar a 2
+	short int hora;
+	short int min;
+	short int humidade;
+	short int temperatura;
+}registo2_t;
+
+typedef struct {
+	short int tipo;//iniciar a 3
+	short int hora;
+	short int min;
+	short int poten;
+	short int painel;
+}registo3_t;
+
+typedef struct {
+	short int tipo;//iniciar a 4
+	short int hora;
+	short int min;
+	short int tensaoAC;
+	short int tensaoDC;
+}registo4_t;
+
+
+void hora(registo1_t *r1, registo2_t *r2, registo3_t *r3, registo4_t *r4){
+	time_t tempo_atual;
+	struct tm *tm_p;
+	tempo_atual = time( NULL );
+	tm_p=localtime( &tempo_atual);
+
+	(*r1).dia=tm_p->tm_mday;
+	(*r1).mes=tm_p->tm_mon+1;
+	(*r1).hora=tm_p->tm_hour;
+	(*r1).min=tm_p->tm_min;
+
+  (*r2).hora=tm_p->tm_hour;
+	(*r2).min=tm_p->tm_min;
+	
+	(*r3).hora=tm_p->tm_hour;
+	(*r3).min=tm_p->tm_min;
+
+	(*r4).hora=tm_p->tm_hour;
+	(*r4).min=tm_p->tm_min;
+}
+
+void adc(registo3_t *r3, registo4_t *r4){
+  int val=0;
+
+	if (wiringPiSetup () == -1)
+    exit (1) ;
+  
+  mcp3004Setup (pin_base, SPI_CHAN); // 3004 and 3008 are the same 4/8 cha$
+  for (val = 0 ; val < 8 ; val++)
+  {
+    chan[val] = analogRead (pin_base + val);
+  }
+  canal1=chan[0];//((5*chan[0])/(float)255);
+  canal2=chan[1];//((5*chan[0])/(float)255);
+  canal3=chan[6];//((5*chan[0])/(float)255);
+  canal4=chan[7];//((5*chan[7])/(float)255);
+	printf("\n\nestes %d,%d,%d,%d,\n\n",canal1,canal2,canal3,canal4);
+
+/*        (*r3).poten   =chan[0];//((5*chan[0])/(float)255);
+        (*r3).painel  =chan[1];//((5*chan[0])/(float)255);
+        (*r4).tensaoAC=chan[6];//((5*chan[0])/(float)255);
+	(*r4).tensaoDC=chan[7];//((5*chan[7])/(float)255);*/
+
+	pin_base=pin_base+8;
+}
+
+void dht11_read_val(registo2_t *r2) {
+  uint8_t lststate=HIGH;
+	uint8_t counter=0;
+	uint8_t j=0,i;
+  for(i=0;i<5;i++)
+    dht11_val[i]=0;
+  pinMode(DHT11PIN,OUTPUT);
+  digitalWrite(DHT11PIN,LOW);
+  delay(18);
+  digitalWrite(DHT11PIN,HIGH);
+  delayMicroseconds(40);
+  pinMode(DHT11PIN,INPUT);
+  for(i=0;i<MAX_TIME;i++)
+  {
+  	counter=0;
+  	while(digitalRead(DHT11PIN)==lststate)
+	  {
+      counter++;
+      delayMicroseconds(1);
+      if(counter==255)
+      	break;
+    }
+    lststate=digitalRead(DHT11PIN);
+    if(counter==255)
+    	break;
+        	// top 3 transistions are ignored
+    if((i>=4)&&(i%2==0))
+		{
+    	dht11_val[j/8]<<=1;
+    	if(counter>16)
+      	dht11_val[j/8]|=1;
+      j++;
+    }
+  }
+  				// verify cheksum and print the verified data
+  if((j>=40)&&(dht11_val[4]==((dht11_val[0]+dht11_val[1]+dht11_val[2]+dht11_val[3])& 0xFF)))
+  {
+		(*r2).humidade=dht11_val[0];
+		(*r2).temperatura=dht11_val[2];
+		flag_erro=0;
+  }
+  else
+		flag_erro=1;
+}
+
+void escrever() {
+  registo1_t r1;
+	registo2_t r2;
+	registo3_t r3;
+	registo4_t r4;
+
+	hora(&r1,&r2,&r3,&r4);
+	short i;
+	for (i=0;i<5;i++)
+	{
+		adc(&r3,&r4);		// Lê sensores ligados ao conversor AD
+
+		canal1_total=(canal1_total+chan[0]);	
+		canal2_total=(canal2_total+chan[1]);
+		canal3_total=(canal3_total+chan[6]);
+		canal4_total=(canal4_total+chan[7]);
+    delay(5000);		//delay 5s entre cada leitura
+	}
+	canal11=(canal1_total/5)*(float)0.003;			//média dos valores lidos.
+  canal21=(canal2_total/5)*(float)0.003;
+  canal31=(canal3_total/5)*(float)0.003;
+  canal41=(canal4_total/5)*(float)0.003;
+
+	dht11_read_val(&r2);	// Lê sensor de temperatura
+	while(flag_erro==1){
+		printf("Erro de leitura do DHT11, tentando outra vez!\n");
+		dht11_read_val(&r2);
+		delay(1000);
+	}
+
+	if ((access("file.dat",F_OK))!=0){
+		fp=fopen("file.dat","w");
+	}
+	else{
+		fp=fopen("file.dat","a+");
+	}
+	if((hora_ant!=r1.hora)||(min_ant!=r1.min)){
+		if((dia_ant!=r1.dia)||(mes_ant!=r1.mes)){
+			printf("\nESTRUTURA 1 GUARDADA:\n");
+			r1.tipo=1;
+			fwrite(&r1,sizeof(registo1_t),1,fp);
+			dia_ant=r1.dia;
+			mes_ant=r1.mes;
+			printf("\nData:%d/%d %d:%d\n", r1.dia, r1.mes, r1.hora, r1.min);
+		}
+		if((humid_ant!=r2.humidade)||(temp_ant!=r2.temperatura)){
+			printf("\nESTRUTURA 2 GUARDADA:\n");
+			r2.tipo=2;
+			fwrite(&r2,sizeof(registo2_t),1,fp);
+			humid_ant=r2.humidade;
+			temp_ant=r2.temperatura;
+			printf("Humidade:%d\nTemperatura:%d\n", r2.humidade, r2.temperatura);
+		}
+		if((poten_ant!=r3.poten)||(painel_ant!=r3.painel)){
+			printf("\nESTRUTURA 3 GUARDADA:\n");
+			r3.tipo=3;
+			fwrite(&r3,sizeof(registo3_t),1,fp);
+			poten_ant=r3.poten;
+			painel_ant=r3.painel;
+
+      printf("Poten:%2.3f\nPainel:%2.3f\n", canal11, canal21);
+//	  printf("Poten:%d\nPainel:%d\n", r3.poten, r3.painel);
+		}
+		if((tensaoDC_ant!=r4.tensaoDC)||(tensaoAC_ant!=r4.tensaoAC)){
+			printf("\nESTRUTURA 4 GUARDADA:\n");
+			r4.tipo=4;
+			fwrite(&r4,sizeof(registo4_t),1,fp);
+			tensaoAC_ant=r4.tensaoAC;
+			//tensaoDC_ant=r4.tensaoDC;
+			tensaoDC_ant=((12*chan[7])/(float)255);
+
+      printf("Tensao AC:%2.3f\nTensao DC:%2.3f\n",canal31,canal41);
+//  	printf("Tensao AC:%d\nTensao DC:%d, %f\n", r4.tensaoAC, r4.tensaoDC, tensaoDC_ant);
+		}
+	}
+	fclose(fp);
+}
+
+int main(void){
+//int i=0;
+	printf("SMIR PI - Servidor de Monitorização e Intervenção Remoto\n");
+	if(wiringPiSetup()==-1)
+		exit(1);
+//for(i=0;i<3;i++){
+		escrever();
+		printf("Leitura executada!\n");
+//	delay(60000);
+//}
+	return 0;
+}
